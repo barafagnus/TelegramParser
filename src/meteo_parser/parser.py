@@ -1,160 +1,170 @@
 from __future__ import annotations
 
-import pprint
 from dataclasses import dataclass
-from typing import List, Optional
-from decode import *
+from typing import List
 
-from models import MonthlyRecord, DecadalRecord
+from decode import (
+    dekad_start,
+    month_start,
+    decode_p_station_hpa,
+    decode_p_sea_hpa,
+    decode_t_mean_deviation,
+    decode_t_daily,
+    decode_p_water,
+    decode_precipitation,
+    decode_sunshine,
+    decode_t_mean_deviation_decade,
+    decode_precipitation_decade,
+)
+from models import MonthlyBlock, DecadalBlock, MonthlyRecord, DecadalRecord
+
 
 @dataclass
-class MonthlyBlock:
-    month: int
-    year: int
-    station_lines: List[str]
-    header: str
+class ParseResult:
+    monthly: List[MonthlyRecord]
+    decadal: List[DecadalRecord]
 
-@dataclass
-class DecadalBlock:
-    month: int
-    dekad_no: int
-    station_lines: List[str]
-    header: str
 
-def parse_monthly_block(block):
-    dt = month_start(block.year, block.month)
-    result: List[MonthlyRecord] = []
+class TelegramParser:
+    """
+    Парсер блоков CLIMAT / DEKADA
+    - получает на вход блоки из TelegramReader
+    - разбирает каждую строку станции, распознает коды, расшифровывает ф-ями из decode.py
+    - формирует дата-классы
+    """
 
-    for raw in block.station_lines:
-        parts = raw.split()
-        if not parts:
-            continue
+    def parse_blocks(
+            self,
+            monthly_blocks: List[MonthlyBlock],
+            decadal_blocks: List[DecadalBlock],
+            default_decadal_year: int,
+    ) -> ParseResult:
+        """
+        Args:
+            monthly_blocks: список блоков CLIMAT (месячные данные)
+            decadal_blocks: список блоков DEKADA (декадные данные)
+            default_decadal_year: год по умолчанию для DEKADA, если в данных нет CLIMAT
 
-        station_id = int(parts[0])
-        groups = parts[1:]
+        Returns:
+            ParseResult с двумя списками записей: monthly и decadal
+        """
+        monthly_records: List[MonthlyRecord] = []
+        for b in monthly_blocks:
+            monthly_records.extend(self.parse_monthly_block(b))
 
-        rec = MonthlyRecord(date=dt, station_id=station_id, raw_line=raw)
+        dec_year = self._choose_decadal_year(monthly_blocks, default_decadal_year)
 
-        for code in groups:
-            if code == "111" or not code:
+        decadal_records: List[DecadalRecord] = []
+        for b in decadal_blocks:
+            decadal_records.extend(self.parse_decadal_block(b, year=dec_year))
+
+        return ParseResult(monthly=monthly_records, decadal=decadal_records)
+
+    def parse_monthly_block(self, block: MonthlyBlock) -> List[MonthlyRecord]:
+        dt = month_start(block.year, block.month)
+        records: List[MonthlyRecord] = []
+
+        for raw_line in block.station_lines:
+            parts = raw_line.split()
+            if not parts:
                 continue
 
-            lead = code[0]
+            station_id = int(parts[0])
+            groups = parts[1:]
 
-            # 1 P0 P0 P0 P0
-            if lead == "1" and len(code) >= 5:
-                rec.p_station_hpa = decode_p_station_hpa(code[1:5])
+            rec = MonthlyRecord(date=dt, station_id=station_id, raw_line=raw_line)
 
-            # 2 P P P P
-            elif lead == "2" and len(code) >= 5:
-                rec.p_sea_hpa = decode_p_sea_hpa(code[1:5])
+            for code in groups:
+                if not code or code == "111":
+                    continue
 
-            # 3 Sn T T T s1 s1 s1
-            elif lead == "3" and len(code) >= 8:
-                decoded = decode_t_mean_deviation(code[1:])
-                if decoded is not None:
-                    rec.t_mean_c, rec.t_daily_std_c = decoded
+                lead = code[0]
 
-            # 4 Sn Tx Tx Tx Sn Tn Tn Tn
-            elif lead == "4" and len(code) == 9:
-                decoded = decode_t_daily(code[1:10])
-                if decoded is not None:
-                    rec.t_min_daily_c, rec.t_max_daily_c = decoded
+                if lead == "1" and len(code) >= 5:
+                    rec.p_station_hpa = decode_p_station_hpa(code[1:5])
 
-            # 5 e e e
-            elif lead == "5" and len(code) == 4:
-                rec.e_vapor_hpa = decode_p_water(code[1:])
+                elif lead == "2" and len(code) >= 5:
+                    rec.p_sea_hpa = decode_p_sea_hpa(code[1:5])
 
-            # 6 R1 R1 R1 R1 Rd nr nr
-            elif lead == "6" and len(code) == 8:
-                decoded = decode_precipitation(code[1:])
-                if decoded is not None:
-                    rec.precip_sum_mm, rec.precip_repeatability, rec.precip_days = decoded
+                elif lead == "3" and len(code) >= 8:
+                    decoded = decode_t_mean_deviation(code[1:])
+                    if decoded is not None:
+                        rec.t_mean_c, rec.t_daily_std_c = decoded
 
-            # 7 S1 S1 S1 Ps Ps Ps
-            elif lead == "7" and len(code) == 7:
-                decoded = decode_sunshine(code[1:])
-                if decoded is not None:
-                    rec.sunshine_hours, rec.sunshine_pct_norm = decoded
+                elif lead == "4" and len(code) == 9:
+                    decoded = decode_t_daily(code[1:])
+                    if decoded is not None:
+                        # decode_t_daily возвращает (min, max) в твоей реализации
+                        rec.t_min_daily_c, rec.t_max_daily_c = decoded
 
-        result.append(rec)
+                elif lead == "5" and len(code) == 4:
+                    rec.e_vapor_hpa = decode_p_water(code[1:])
 
-    return result
+                elif lead == "6" and len(code) == 8:
+                    decoded = decode_precipitation(code[1:])
+                    if decoded is not None:
+                        rec.precip_sum_mm, rec.precip_repeatability, rec.precip_days = decoded
 
-def parse_decadal_block(block, year: int):
-    dt = dekad_start(year, block.month, block.dekad_no)
-    result: List[DecadalRecord] = []
+                elif lead == "7" and len(code) == 7:
+                    decoded = decode_sunshine(code[1:])
+                    if decoded is not None:
+                        rec.sunshine_hours, rec.sunshine_pct_norm = decoded
 
-    for raw_line in block.station_lines:
-        parts = raw_line.split()
-        if not parts:
-            continue
+            records.append(rec)
 
-        station_id = int(parts[0])
-        groups = parts[1:]
+        return records
 
-        rec = DecadalRecord(date=dt, dekad_no=block.dekad_no, station_id=station_id, raw_line=raw_line)
+    def parse_decadal_block(self, block: DecadalBlock, year: int) -> List[DecadalRecord]:
+        dt = dekad_start(year, block.month, block.dekad_no)
+        records: List[DecadalRecord] = []
 
-        for code in groups:
-            if not code:
+        for raw_line in block.station_lines:
+            parts = raw_line.split()
+            if not parts:
                 continue
 
-            lead = code[0]
+            station_id = int(parts[0])
+            groups = parts[1:]
 
-            # 1PPPP (в декаде: 19966 => lead=1, полезно "9966")
-            if lead == "1" and len(code) == 5:
-                rec.p_station_hpa = decode_p_station_hpa(code[1:])
+            rec = DecadalRecord(
+                date=dt,
+                dekad_no=block.dekad_no,
+                station_id=station_id,
+                raw_line=raw_line,
+            )
 
-            # 2PPPP
-            elif lead == "2" and len(code) == 5:
-                rec.p_sea_hpa = decode_p_sea_hpa(code[1:])
+            for code in groups:
+                if not code:
+                    continue
 
-            # 3SnTTT
-            elif lead == "3" and len(code) == 5:
-                rec.t_mean_c = decode_t_mean(code[1:])  # 4 символа
+                lead = code[0]
 
-            # 5eee
-            elif lead == "5" and len(code) == 4:
-                rec.e_vapor_hpa = decode_p_water(code[1:])
+                if lead == "1" and len(code) == 5:
+                    rec.p_station_hpa = decode_p_station_hpa(code[1:])
 
-            # 6RRRrdd
-            elif lead == "6" and len(code) == 7:
-                decoded = decode_precipitation_decade(code[1:])
-                if decoded is not None:
-                    rec.precip_sum_mm, rec.precip_repeatability, rec.precip_days = decoded
+                elif lead == "2" and len(code) == 5:
+                    rec.p_sea_hpa = decode_p_sea_hpa(code[1:])
 
-        result.append(rec)
+                elif lead == "3" and len(code) == 5:
+                    rec.t_mean_c = decode_t_mean_deviation_decade(code[1:])
 
-    return result
+                elif lead == "5" and len(code) == 4:
+                    rec.e_vapor_hpa = decode_p_water(code[1:])
 
-mocka =  parse_monthly_block(
-    MonthlyBlock(
-        month=6,
-        year=2025,
-        station_lines=[
-            '22113 111 10019 20080 30096036 401360062 5081 60054315 7200088',
-            '22217 111 10045 20076 30112025 401560071 5091 60050306 7213078',
-            '22235 111 19887 20076 30092033 401340051 5084 60045/09 7141058'
-        ],
-        header='CLIMAT 06025'
-    )
-)
+                elif lead == "6" and len(code) == 7:
+                    decoded = decode_precipitation_decade(code[1:])
+                    if decoded is not None:
+                        rec.precip_sum_mm, rec.precip_repeatability, rec.precip_days = decoded
 
-#pprint.pprint(mocka, sort_dicts=False)
+            records.append(rec)
 
+        return records
 
-mockdecadal = parse_decadal_block(
-    DecadalBlock(
-        month=9,
-        dekad_no=3,
-        station_lines=[
-            '20107 19966 20062 30014 5058 6002204',
-            '22004 10004 20133 30079 5084 6004904',
-            '22127 19927 20125 30064 5083 6003605',
-            '22212 19972 20132 30087 5089 6003403',
-            '22214 19966 20142 30077 5094 6002903',
-            '22324 10094 20142 30084 5095 6001502'
-        ],
-        header='DEKADA 093'), 1
-)
-pprint.pprint(mockdecadal, sort_dicts=False)
+    def _choose_decadal_year(self, monthly_blocks: List[MonthlyBlock], default_year: int) -> int:
+        """
+        Выбор года для декадных блоков
+
+        - если есть monthly_blocks (CLIMAT), берём год из первого блока
+        - иначе возвращаем default_year
+        """
+        return monthly_blocks[0].year if monthly_blocks else default_year
