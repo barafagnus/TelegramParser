@@ -3,8 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 from typing import Dict, Iterable, List, Optional, Tuple
 
-from models import NormalizedTelegram, MonthlyBlock, DecadalBlock
-
+from src.meteo_parser.core.models import MonthlyBlock, DecadalBlock, NormalizedTelegram
 
 
 class TelegramReader:
@@ -197,7 +196,7 @@ class TelegramReader:
 
     def _is_station_line(self, line: str) -> bool:
         """
-        Является ли строка строкой станции (первая группа до пробила состоит из 5 цифр)
+        Является ли строка строкой станции (первая группа до пробела состоит из 5 цифр)
         """
         head = line.split()[0] if line.split() else ""
         return len(head) == 5 and head.isdigit()
