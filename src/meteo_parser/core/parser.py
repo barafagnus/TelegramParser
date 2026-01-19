@@ -3,20 +3,10 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import List
 
-from decode import (
-    dekad_start,
-    month_start,
-    decode_p_station_hpa,
-    decode_p_sea_hpa,
-    decode_t_mean_deviation,
-    decode_t_daily,
-    decode_p_water,
-    decode_precipitation,
-    decode_sunshine,
-    decode_t_mean_deviation_decade,
-    decode_precipitation_decade,
-)
-from models import MonthlyBlock, DecadalBlock, MonthlyRecord, DecadalRecord
+from src.meteo_parser.core.decode import month_start, decode_p_station_hpa, decode_p_sea_hpa, decode_t_mean_deviation, \
+    decode_t_daily, decode_p_water, decode_precipitation, decode_sunshine, dekad_start, decode_t_mean_deviation_decade, \
+    decode_precipitation_decade
+from src.meteo_parser.core.models import MonthlyRecord, DecadalRecord, MonthlyBlock, DecadalBlock
 
 
 @dataclass
@@ -94,7 +84,6 @@ class TelegramParser:
                 elif lead == "4" and len(code) == 9:
                     decoded = decode_t_daily(code[1:])
                     if decoded is not None:
-                        # decode_t_daily возвращает (min, max) в твоей реализации
                         rec.t_min_daily_c, rec.t_max_daily_c = decoded
 
                 elif lead == "5" and len(code) == 4:

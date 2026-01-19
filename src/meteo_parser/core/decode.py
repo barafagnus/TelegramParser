@@ -91,9 +91,8 @@ def _parse_int_or_none(s: str, missing: str = "///") -> Optional[int]:
     return int(s) if s.isdigit() else None
 
 
-# -------------------
+
 # Monthly decoders
-# -------------------
 
 def decode_p_station_hpa(code: str) -> Optional[float]:
     """PPPP: давление на уровне станции (гПа)"""
@@ -213,9 +212,8 @@ def decode_sunshine(code: str) -> Optional[Tuple[Optional[int], Optional[int]]]:
     return sunshine_hours, sunshine_pct_norm
 
 
-# -------------------
-# Decadal decoders
-# -------------------
+
+# Decadal
 
 def decode_t_mean_deviation_decade(code: str) -> Optional[float]:
     """SnTTT: средняя температура декады (C)."""

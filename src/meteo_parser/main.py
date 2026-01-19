@@ -1,9 +1,8 @@
 from __future__ import annotations
 
-from parser import TelegramParser
-from reader import TelegramReader
 from config import AppConfig
-
+from core.parser import TelegramParser
+from core.reader import TelegramReader
 
 def run(cfg: AppConfig):
     reader = TelegramReader(
@@ -23,7 +22,8 @@ def run(cfg: AppConfig):
     )
 
 
-if __name__ == "__main__":
+def main() -> None:
+    """CLI-точка входа для локального запуска."""
     cfg = AppConfig()
     result = run(cfg)
 
@@ -39,3 +39,8 @@ if __name__ == "__main__":
         print("\nDecadal:")
         for rec in result.decadal:
             print(rec)
+
+
+if __name__ == "__main__":
+    main()
+
